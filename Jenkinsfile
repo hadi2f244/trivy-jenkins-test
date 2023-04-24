@@ -7,15 +7,13 @@ pipeline {
         stage('Load Environment Variables') {
             steps {
                 script {
-                    load "${env.WORKSPACE}/.env"
+                    load "jenkins/env.groovy"
                 }
             }
         }
         stage("Security Scan") {
             when {
-                not {
-                    expression { return SKIP_SECURITY_SCAN }
-                }
+                expression { SKIP_SECURITY_SCAN == false }
             }
             steps {
                 script {
