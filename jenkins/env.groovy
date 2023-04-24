@@ -1,1 +1,1 @@
-SKIP_SECURITY_SCAN = false
+SECURITY_SCAN = true

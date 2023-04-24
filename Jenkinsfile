@@ -25,7 +25,7 @@ pipeline {
         }
         stage("Security Scan") {
             when {
-                expression { SKIP_SECURITY_SCAN == false }
+                expression { SECURITY_SCAN == true }
             }
 
             steps {
