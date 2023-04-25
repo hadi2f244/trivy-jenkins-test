@@ -2,6 +2,15 @@ String determineRepoName() {
     return scm.getUserRemoteConfigs()[0].getUrl().tokenize('/').last().split("\\.")[0]
 }
 
+def getPropOrDefault( Closure c, def defaultVal ) {
+    try {
+        return c()
+    }
+    catch( groovy.lang.MissingPropertyException e ) {
+        return defaultVal
+    }
+}
+
 pipeline {
     agent any
     environment {
@@ -27,16 +36,25 @@ pipeline {
             when {
                 expression { SECURITY_SCAN == true }
             }
-            environment {
-                GITHUB_TOKEN = credentials("GITHUB_TOKEN")
-            }
             steps {
                 script {
-                    sh """
-                    docker run --env GITHUB_TOKEN=${GITHUB_TOKEN} -v /tmp/trivy:/tmp/trivy aquasec/trivy:latest \
-                        --cache-dir /tmp/trivy/ image --no-progress  --ignore-unfixed \
-                        --exit-code 1 --scanners vuln --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
-                    """
+                    try {
+                        withCredentials([string(credentialsId: 'GITHUB_TOKEN', variable: 'GITHUB_TOKEN')]) {
+                            sh """
+                                docker run --env GITHUB_TOKEN=${env.GITHUB_TOKEN} -v /tmp/trivy:/tmp/trivy aquasec/trivy:latest \
+                                    --cache-dir /tmp/trivy/ image --no-progress  --ignore-unfixed \
+                                    --exit-code 1 --scanners vuln --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
+                            """
+                        }
+                    } catch (Exception e) {
+                        echo "Error: ${e.getMessage()}"
+                        sh """
+                            docker run -v /tmp/trivy:/tmp/trivy aquasec/trivy:latest \
+                                --cache-dir /tmp/trivy/ image --no-progress  --ignore-unfixed \
+                                --exit-code 1 --scanners vuln --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
+                        """
+                    }
+
                 }
             }
         }
