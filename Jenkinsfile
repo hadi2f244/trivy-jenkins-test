@@ -8,6 +8,7 @@ pipeline {
     environment {
         APP_NAME = determineRepoName()
         SHORT_COMMIT = GIT_COMMIT.take(7)
+        HTTP_PROXY = ""
     }
     stages {
         stage('Build Image') {
@@ -28,17 +29,20 @@ pipeline {
             when {
                 expression { SECURITY_SCAN == true }
             }
-            environment {
-                TRIVY_TIMEOUT = "30m"
-            }
             steps {
                 script {
+                    def PROXY_SET_VAR = ""
+                    if (env.HTTP_PROXY?.trim()){
+                        PROXY_SET_VAR = " --env HTTP_PROXY=\"${HTTP_PROXY}\" --env HTTPS_PROXY=\"${HTTP_PROXY}\""
+                    }
+
                     try {
                         withCredentials([string(credentialsId: 'GITHUB_TOKEN', variable: 'GITHUB_TOKEN')]) {
                             sh """
-                                docker run --rm --env GITHUB_TOKEN=${env.GITHUB_TOKEN} -v /var/run/docker.sock:/var/run/docker.sock \
-                                    -v /tmp/trivy:/tmp/trivy aquasec/trivy:latest \
-                                    --timeout ${TRIVY_TIMEOUT} --cache-dir /tmp/trivy/ image --ignore-unfixed \
+                                docker run --rm --env GITHUB_TOKEN=${env.GITHUB_TOKEN} \
+                                    -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy:/tmp/trivy \
+                                    ${PROXY_SET_VAR} \
+                                    aquasec/trivy:latest --cache-dir /tmp/trivy/ image --ignore-unfixed \
                                     --exit-code 1 --scanners vuln --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
                             """
                         }
@@ -46,9 +50,10 @@ pipeline {
                         if (e.getMessage().contains("Could not find credentials entry with ID 'GITHUB_TOKEN'")) {
                             echo "Warning: ${e.getMessage()}. It is needed to pass trivy db updating ratelimit"
                             sh """
-                                docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-                                    -v /tmp/trivy:/tmp/trivy aquasec/trivy:latest \
-                                    --timeout ${TRIVY_TIMEOUT} --cache-dir /tmp/trivy/ image --ignore-unfixed \
+                                docker run --rm \
+                                    -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy:/tmp/trivy \
+                                    ${PROXY_SET_VAR} \
+                                    aquasec/trivy:latest --cache-dir /tmp/trivy/ image --ignore-unfixed \
                                     --exit-code 1 --scanners vuln --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
                             """
                         } else {
