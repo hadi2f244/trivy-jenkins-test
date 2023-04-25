@@ -1,1 +1,1 @@
-// SECURITY_SCAN = true
+SECURITY_SCAN = true
