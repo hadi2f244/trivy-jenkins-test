@@ -1,14 +1,6 @@
+
 String determineRepoName() {
     return scm.getUserRemoteConfigs()[0].getUrl().tokenize('/').last().split("\\.")[0]
-}
-
-def getPropOrDefault( Closure c, def defaultVal ) {
-    try {
-        return c()
-    }
-    catch( groovy.lang.MissingPropertyException e ) {
-        return defaultVal
-    }
 }
 
 pipeline {
@@ -36,25 +28,33 @@ pipeline {
             when {
                 expression { SECURITY_SCAN == true }
             }
+            environment {
+                TRIVY_TIMEOUT = "30m"
+            }
             steps {
                 script {
                     try {
                         withCredentials([string(credentialsId: 'GITHUB_TOKEN', variable: 'GITHUB_TOKEN')]) {
                             sh """
-                                docker run --env GITHUB_TOKEN=${env.GITHUB_TOKEN} -v /tmp/trivy:/tmp/trivy aquasec/trivy:latest \
-                                    --cache-dir /tmp/trivy/ image --no-progress  --ignore-unfixed \
+                                docker run --rm --env GITHUB_TOKEN=${env.GITHUB_TOKEN} -v /var/run/docker.sock:/var/run/docker.sock \
+                                    -v /tmp/trivy:/tmp/trivy aquasec/trivy:latest \
+                                    --timeout ${TRIVY_TIMEOUT} --cache-dir /tmp/trivy/ image --ignore-unfixed \
                                     --exit-code 1 --scanners vuln --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
                             """
                         }
                     } catch (Exception e) {
-                        echo "Error: ${e.getMessage()}"
-                        sh """
-                            docker run -v /tmp/trivy:/tmp/trivy aquasec/trivy:latest \
-                                --cache-dir /tmp/trivy/ image --no-progress  --ignore-unfixed \
-                                --exit-code 1 --scanners vuln --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
-                        """
+                        if (e.getMessage().contains("Could not find credentials entry with ID 'GITHUB_TOKEN'")) {
+                            echo "Warning: ${e.getMessage()}. It is needed to pass trivy db updating ratelimit"
+                            sh """
+                                docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+                                    -v /tmp/trivy:/tmp/trivy aquasec/trivy:latest \
+                                    --timeout ${TRIVY_TIMEOUT} --cache-dir /tmp/trivy/ image --ignore-unfixed \
+                                    --exit-code 1 --scanners vuln --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
+                            """
+                        } else {
+                            throw e
+                        }
                     }
-
                 }
             }
         }
