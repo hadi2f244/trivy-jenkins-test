@@ -8,7 +8,7 @@ pipeline {
     environment {
         APP_NAME = determineRepoName()
         SHORT_COMMIT = GIT_COMMIT.take(7)
-        HTTP_PROXY = ""
+        HTTP_PROXY = "http://10.13.52.31:1107"
     }
     stages {
         stage('Build Image') {
@@ -32,9 +32,23 @@ pipeline {
             }
             environment {
                 VUL_TYPE ="os,library"
-                IGNORE_POLICY_REGO_FILE = "basic.rego"
             }
             steps {
+                // Create trivy ignore policy file
+
+                script {
+                    IGNORE_POLICY_REGO_FILE = sh(returnStdout: true, script: 'mktemp').trim()
+                    sh """
+                    cat > ${IGNORE_POLICY_REGO_FILE} <<EOF
+                    package trivy
+                    import data.lib.trivy
+                    default ignore = false
+                    ignore_pkgs := {"setuptools"}
+                    ignore {
+                        input.PkgName == ignore_pkgs[_]
+                    }
+                    """
+                }
                 script {
                     def PROXY_SET_VAR = ""
                     if (env.HTTP_PROXY?.trim()){
@@ -46,12 +60,12 @@ pipeline {
                             sh """
                                 docker run --rm --env GITHUB_TOKEN=${env.GITHUB_TOKEN} \
                                     -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy:/tmp/trivy \
-                                    -v ${env.WORKSPACE}/${IGNORE_POLICY_REGO_FILE}:/tmp/${IGNORE_POLICY_REGO_FILE}\
+                                    -v ${IGNORE_POLICY_REGO_FILE}:${IGNORE_POLICY_REGO_FILE} \
                                     ${PROXY_SET_VAR} \
                                     aquasec/trivy:latest --cache-dir /tmp/trivy/ image \
-                                    --ignore-unfixed --skip-java-db-update --exit-code 1 --scanners vuln\
+                                    --ignore-unfixed --exit-code 1 --scanners vuln \
                                     --vuln-type ${VUL_TYPE} \
-                                    --ignore-policy /tmp/${IGNORE_POLICY_REGO_FILE} \
+                                    --ignore-policy ${IGNORE_POLICY_REGO_FILE} \
                                     --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
                             """
                         }
@@ -61,18 +75,19 @@ pipeline {
                             sh """
                                 docker run --rm \
                                     -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy:/tmp/trivy \
-                                    -v ${env.WORKSPACE}/${IGNORE_POLICY_REGO_FILE}:/tmp/${IGNORE_POLICY_REGO_FILE}\
+                                    -v ${IGNORE_POLICY_REGO_FILE}:${IGNORE_POLICY_REGO_FILE} \
                                     ${PROXY_SET_VAR} \
                                     aquasec/trivy:latest --cache-dir /tmp/trivy/ image \
-                                    --ignore-unfixed --skip-java-db-update --exit-code 1 --scanners vuln\
+                                    --ignore-unfixed --exit-code 1 --scanners vuln \
                                     --vuln-type ${VUL_TYPE} \
-                                    --ignore-policy /tmp/${IGNORE_POLICY_REGO_FILE} \
+                                    --ignore-policy ${IGNORE_POLICY_REGO_FILE} \
                                     --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
                             """
                         } else {
                             throw e
                         }
                     }
+                    sh "rm ${IGNORE_POLICY_REGO_FILE}"
                 }
             }
         }
