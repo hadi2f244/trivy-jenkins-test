@@ -8,7 +8,6 @@ pipeline {
     environment {
         APP_NAME = determineRepoName()
         SHORT_COMMIT = GIT_COMMIT.take(7)
-        SECURITY_SCAN = false
         HTTP_PROXY = ""
     }
     stages {
@@ -28,6 +27,7 @@ pipeline {
         }
         stage("Security Scan") {
             when {
+                expression { binding.hasVariable('SECURITY_SCAN') }
                 expression { SECURITY_SCAN == true }
             }
             steps {
