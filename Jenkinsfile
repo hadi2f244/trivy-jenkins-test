@@ -8,7 +8,7 @@ pipeline {
     environment {
         APP_NAME = determineRepoName()
         SHORT_COMMIT = GIT_COMMIT.take(7)
-        HTTP_PROXY = ""
+        HTTP_PROXY = "http://10.13.52.31:1107"
     }
     stages {
         stage('Build Image') {
@@ -28,7 +28,10 @@ pipeline {
         stage("Security Scan") {
             when {
                 expression { binding.hasVariable('SECURITY_SCAN') }
-                expression { SECURITY_SCAN == true }
+                expression { SECURITY_SCAN == true}
+            }
+            environment {
+                VUL_TYPE ="os,library"
             }
             steps {
                 script {
@@ -43,7 +46,8 @@ pipeline {
                                 docker run --rm --env GITHUB_TOKEN=${env.GITHUB_TOKEN} \
                                     -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy:/tmp/trivy \
                                     ${PROXY_SET_VAR} \
-                                    aquasec/trivy:latest --cache-dir /tmp/trivy/ image --ignore-unfixed \
+                                    aquasec/trivy:latest --cache-dir /tmp/trivy/ image --ignore-unfixed  --skip-db-update \
+                                    --vuln-type ${VUL_TYPE} \
                                     --exit-code 1 --scanners vuln --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
                             """
                         }
@@ -54,7 +58,8 @@ pipeline {
                                 docker run --rm \
                                     -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy:/tmp/trivy \
                                     ${PROXY_SET_VAR} \
-                                    aquasec/trivy:latest --cache-dir /tmp/trivy/ image --ignore-unfixed \
+                                    aquasec/trivy:latest --cache-dir /tmp/trivy/ image --ignore-unfixed --skip-db-update \
+                                    --vuln-type ${VUL_TYPE} \
                                     --exit-code 1 --scanners vuln --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
                             """
                         } else {
