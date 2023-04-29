@@ -39,7 +39,7 @@ pipeline {
                     // Create trivy ignore policy
                     def ignore_policy_rego_file = ""
                     if (env.IGNORE_PKGS?.trim()){
-                        ignore_policy_rego_file = sh(returnStdout: true, script: 'mktemp').trim()
+                        ignore_policy_rego_file = sh(returnStdout: true, script: 'mktemp --suffix=.rego').trim()
                         sh """
                         cat > ${ignore_policy_rego_file} <<EOF
                         package trivy
@@ -79,7 +79,7 @@ pipeline {
                                     --ignore-unfixed --exit-code 1 --scanners vuln \
                                     --vuln-type ${VUL_TYPE} \
                                     ${ignore_policy_option} \
-                                    --severity HIGH,CRITICAL lvthillo/python-flask-docker
+                                    --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
                             """
                         }
                     } catch (Exception e) {
