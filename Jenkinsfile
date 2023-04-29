@@ -28,45 +28,58 @@ pipeline {
         stage("Security Scan") {
             when {
                 expression { binding.hasVariable('SECURITY_SCAN') }
-                expression { SECURITY_SCAN == true}
+                expression { SECURITY_SCAN == true }
             }
             environment {
-                VUL_TYPE ="os,library"
+                VUL_TYPE ="library" // "os,library"
+                IGNORE_PKGS = '{"setuptools"}' // '{"setuptools", "wheel"}'
             }
             steps {
-                // Create trivy ignore policy file
-
                 script {
-                    IGNORE_POLICY_REGO_FILE = sh(returnStdout: true, script: 'mktemp').trim()
-                    sh """
-                    cat > ${IGNORE_POLICY_REGO_FILE} <<EOF
-                    package trivy
-                    import data.lib.trivy
-                    default ignore = false
-                    ignore_pkgs := {"setuptools"}
-                    ignore {
-                        input.PkgName == ignore_pkgs[_]
+                    // Create trivy ignore policy
+                    def ignore_policy_rego_file = ""
+                    if (env.IGNORE_PKGS?.trim()){
+                        ignore_policy_rego_file = sh(returnStdout: true, script: 'mktemp').trim()
+                        sh """
+                        cat > ${ignore_policy_rego_file} <<EOF
+                        package trivy
+                        import data.lib.trivy
+                        default ignore = false
+                        ignore_pkgs := ${IGNORE_PKGS}
+                        ignore {
+                            input.PkgName == ignore_pkgs[_]
+                        }
+                        """
                     }
-                    """
-                }
-                script {
-                    def PROXY_SET_VAR = ""
+
+                    // Trivy Security Check
+                    // HTTP Proxy
+                    def proxy_set_var = ""
                     if (env.HTTP_PROXY?.trim()){
-                        PROXY_SET_VAR = " --env HTTP_PROXY=\"${HTTP_PROXY}\" --env HTTPS_PROXY=\"${HTTP_PROXY}\""
+                        proxy_set_var = " --env HTTP_PROXY=\"${HTTP_PROXY}\" --env HTTPS_PROXY=\"${HTTP_PROXY}\""
                     }
 
+                    // Ignore Policy
+                    def ignore_policy_volume = ""
+                    def ignore_policy_option = ""
+                    if (ignore_policy_rego_file?.trim()){
+                        ignore_policy_volume = "-v ${ignore_policy_rego_file}:${ignore_policy_rego_file}"
+                        ignore_policy_option = "--ignore-policy ${ignore_policy_rego_file}"
+                    }
+
+                    // Try to check GITHUB_TOKEN existance
                     try {
                         withCredentials([string(credentialsId: 'GITHUB_TOKEN', variable: 'GITHUB_TOKEN')]) {
                             sh """
                                 docker run --rm --env GITHUB_TOKEN=${env.GITHUB_TOKEN} \
                                     -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy:/tmp/trivy \
-                                    -v ${IGNORE_POLICY_REGO_FILE}:${IGNORE_POLICY_REGO_FILE} \
-                                    ${PROXY_SET_VAR} \
+                                    ${ignore_policy_volume} \
+                                    ${proxy_set_var} \
                                     aquasec/trivy:latest --cache-dir /tmp/trivy/ image \
                                     --ignore-unfixed --exit-code 1 --scanners vuln \
                                     --vuln-type ${VUL_TYPE} \
-                                    --ignore-policy ${IGNORE_POLICY_REGO_FILE} \
-                                    --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
+                                    ${ignore_policy_option} \
+                                    --severity HIGH,CRITICAL lvthillo/python-flask-docker
                             """
                         }
                     } catch (Exception e) {
@@ -75,19 +88,23 @@ pipeline {
                             sh """
                                 docker run --rm \
                                     -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy:/tmp/trivy \
-                                    -v ${IGNORE_POLICY_REGO_FILE}:${IGNORE_POLICY_REGO_FILE} \
-                                    ${PROXY_SET_VAR} \
+                                    ${ignore_policy_volume} \
+                                    ${proxy_set_var} \
                                     aquasec/trivy:latest --cache-dir /tmp/trivy/ image \
                                     --ignore-unfixed --exit-code 1 --scanners vuln \
                                     --vuln-type ${VUL_TYPE} \
-                                    --ignore-policy ${IGNORE_POLICY_REGO_FILE} \
+                                    ${ignore_policy_option} \
                                     --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
                             """
                         } else {
                             throw e
                         }
                     }
-                    sh "rm ${IGNORE_POLICY_REGO_FILE}"
+
+                    // Remove ignore_policy_rego_file
+                    if (ignore_policy_rego_file?.trim()){
+                        sh "rm ${ignore_policy_rego_file}"
+                    }
                 }
             }
         }
