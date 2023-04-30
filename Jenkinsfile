@@ -32,13 +32,12 @@ pipeline {
             }
             environment {
                 VUL_TYPE ="library" // "os,library"
-                IGNORE_PKGS = '{"setuptools"}' // '{"setuptools", "wheel"}'
             }
             steps {
                 script {
                     // Create trivy ignore policy
                     def ignore_policy_rego_file = ""
-                    if (env.IGNORE_PKGS?.trim()){
+                    if (binding.hasVariable('IGNORE_PKGS') && IGNORE_PKGS?.trim()){
                         ignore_policy_rego_file = sh(returnStdout: true, script: 'mktemp --suffix=.rego').trim()
                         sh """
                         cat > ${ignore_policy_rego_file} <<EOF
