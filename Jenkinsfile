@@ -68,41 +68,27 @@ pipeline {
 
                     // Try to check GITHUB_TOKEN existance
                     try {
-                        withCredentials([string(credentialsId: 'GITHUB_TOKEN', variable: 'GITHUB_TOKEN')]) {
-                            sh """
-                                docker run --rm --env GITHUB_TOKEN=${env.GITHUB_TOKEN} \
-                                    -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy:/tmp/trivy \
-                                    ${ignore_policy_volume} \
-                                    ${proxy_set_var} \
-                                    aquasec/trivy:latest --cache-dir /tmp/trivy/ image \
-                                    --ignore-unfixed --exit-code 1 --scanners vuln \
-                                    --vuln-type ${VUL_TYPE} \
-                                    ${ignore_policy_option} \
-                                    --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
-                            """
-                        }
+                        sh """
+                            docker run --rm \
+                                -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy:/tmp/trivy \
+                                ${ignore_policy_volume} \
+                                ${proxy_set_var} \
+                                aquasec/trivy:latest --cache-dir /tmp/trivy/ image \
+                                --ignore-unfixed --exit-code 1 --scanners vuln \
+                                --vuln-type ${VUL_TYPE} \
+                                ${ignore_policy_option} \
+                                --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
+                        """
                     } catch (Exception e) {
-                        if (e.getMessage().contains("Could not find credentials entry with ID 'GITHUB_TOKEN'")) {
-                            echo "Warning: ${e.getMessage()}. It is needed to pass trivy db updating ratelimit"
-                            sh """
-                                docker run --rm \
-                                    -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy:/tmp/trivy \
-                                    ${ignore_policy_volume} \
-                                    ${proxy_set_var} \
-                                    aquasec/trivy:latest --cache-dir /tmp/trivy/ image \
-                                    --ignore-unfixed --exit-code 1 --scanners vuln \
-                                    --vuln-type ${VUL_TYPE} \
-                                    ${ignore_policy_option} \
-                                    --severity HIGH,CRITICAL ${APP_NAME}:${BRANCH_NAME}-${SHORT_COMMIT}
-                            """
-                        } else {
-                            throw e
+                        // Throw error to fail pipeline
+                        throw e
+                    } finally {
+                        // Rescure steps:
+                        // Remove ignore_policy_rego_file
+                        if (ignore_policy_rego_file?.trim()){
+                            sh "rm ${ignore_policy_rego_file}"
                         }
-                    }
 
-                    // Remove ignore_policy_rego_file
-                    if (ignore_policy_rego_file?.trim()){
-                        sh "rm ${ignore_policy_rego_file}"
                     }
                 }
             }
